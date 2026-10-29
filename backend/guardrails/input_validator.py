@@ -33,14 +33,13 @@ def validate_request(
     """
     Validate a financial request against safety rules.
 
-    TODO (5 points):
-    - Reject if amount <= 0 (message: "Amount must be positive")
-    - Reject if amount > BUDGET_CEILING (message: "Amount exceeds budget ceiling of ${BUDGET_CEILING:,.2f}")
-    - Reject if department not in VALID_DEPARTMENTS (message: "Invalid department: {department}")
-    - Reject if title exceeds MAX_TITLE_LENGTH (message: "Title too long")
-    - Call sanitize_text() on title, description, and justification
-      - If any returns (False, message), reject with that message
-    - If all checks pass, return (True, "Request validated successfully")
+    Student Note (Validation Architecture):
+    Input validation operates as the first line of defense before data enters the
+    LangGraph execution pipeline. It enforces 4 sequential safety gates:
+      1. Boundary validation (positive, non-zero, below enterprise budget ceiling)
+      2. Department whitelist validation (ensures valid cost center)
+      3. Payload length limits (guards against buffer/token bloat attacks)
+      4. Injection sanitization (blocks SQL/XSS/script breakout patterns)
 
     Args:
         amount: Requested dollar amount
@@ -52,17 +51,41 @@ def validate_request(
     Returns:
         Tuple of (is_valid, message)
     """
-    raise NotImplementedError("TODO: Implement validate_request (5 points)")
+
+    # Gate 1: Amount validation
+    amount_valid, amount_msg = validate_amount(amount)
+    if not amount_valid:
+        return False, amount_msg
+
+    # Gate 2: Department whitelist check
+    if department not in VALID_DEPARTMENTS:
+        return False, f"Invalid department: {department}"
+
+    # Gate 3: Field length boundary checks
+    if len(title) > MAX_TITLE_LENGTH:
+        return False, "Title too long"
+
+    # Gate 4: Content sanitization (injection checks across all user text fields)
+    for field_val, field_name in [
+        (title, "title"),
+        (description, "description"),
+        (justification, "justification"),
+    ]:
+        is_safe, msg = sanitize_text(field_val, field_name)
+        if not is_safe:
+            return False, msg
+
+    return True, "Request validated successfully"
 
 
 def validate_amount(amount: float) -> tuple[bool, str]:
     """
     Validate the requested amount.
 
-    TODO (2 points):
-    - Return (False, "Amount must be positive") if amount <= 0
-    - Return (False, "Amount exceeds budget ceiling of ${BUDGET_CEILING:,.2f}") if amount > BUDGET_CEILING
-    - Return (True, "Amount is valid") otherwise
+    Student Note:
+    Financial amounts must be strictly positive and capped at BUDGET_CEILING ($100,000).
+    Zero and negative values are invalid; requests > $100,000 require manual out-of-band
+    board approval and must immediately fail automated intake.
 
     Args:
         amount: Dollar amount to validate
@@ -70,18 +93,20 @@ def validate_amount(amount: float) -> tuple[bool, str]:
     Returns:
         Tuple of (is_valid, message)
     """
-    raise NotImplementedError("TODO: Implement validate_amount (2 points)")
+    if amount <= 0:
+        return False, "Amount must be positive"
+    if amount > BUDGET_CEILING:
+        return False, f"Amount exceeds budget ceiling of ${BUDGET_CEILING:,.2f}"
+    return True, "Amount is valid"
 
 
 def sanitize_text(text: str, field_name: str = "text") -> tuple[bool, str]:
     """
     Check text for injection attacks and malicious content.
 
-    TODO (3 points):
-    - Convert text to lowercase for comparison
-    - Check if any BLOCKED_PATTERNS appear in the lowercased text
-    - If found, return (False, "Blocked content detected in {field_name}: suspicious pattern")
-    - If clean, return (True, text)  — return the ORIGINAL text, not lowercased
+    Student Note:
+    Case-insensitive substring search against known malicious patterns (SQL injection,
+    cross-site scripting, and arbitrary Python code execution).
 
     Args:
         text: The text to sanitize
@@ -90,4 +115,8 @@ def sanitize_text(text: str, field_name: str = "text") -> tuple[bool, str]:
     Returns:
         Tuple of (is_safe, original_text_or_error_message)
     """
-    raise NotImplementedError("TODO: Implement sanitize_text (3 points)")
+    text_lower = text.lower()
+    for pattern in BLOCKED_PATTERNS:
+        if pattern in text_lower:
+            return False, f"Blocked content detected in {field_name}: suspicious pattern"
+    return True, text
