@@ -161,6 +161,18 @@ The biggest insight was seeing how the three layers tested different dimensions 
 
 ---
 
+### 4. Evaluation Methodology Justification
+
+Why use a **Three-Layer Framework** instead of just asking an LLM "Did this run well?"
+
+1. **Layer 1 (Deterministic Business Heuristics)**: Software should be evaluated deterministically whenever possible. Whether a request followed the path `['submit', 'assess', 'budget', 'process']` or called the right human review count is a pure mathematical fact. Using Python rules here gives us 100% reproducible ground-truth checks that cost zero tokens.
+2. **Layer 2 (Agent Behavioral Performance via RAGAS)**: In agentic systems, we need to know if the agent actually understood the user's intent and stayed on topic. RAGAS multi-turn metrics (`ToolCallAccuracy`, `AgentGoalAccuracyWithReference`, `TopicAdherenceScore`) evaluate agent reasoning, conversational focus, and goal achievement across turns without needing hardcoded string comparisons.
+3. **Layer 3 (Safety, Compliance & Hallucination Prevention)**: Financial workflows have hard legal and policy boundaries. Layer 3 pairs strict policy rules (never approve over-ceiling expenses; require mandatory reviews) with an LLM judge to detect hallucinated policy numbers or fake figures.
+
+Separating evaluation into these three layers ensures that a failure in one dimension (e.g. slight conversational drift) is immediately distinguished from a catastrophic failure in another (e.g. an unauthorized $50,000 spend).
+
+---
+
 ## Bonus Feature: Real-Time Approval Dashboard (+8 Points)
 
 To complete the bonus feature, I built an interactive **Approval Pipeline Dashboard** on top of the starter frontend:
@@ -175,7 +187,19 @@ To complete the bonus feature, I built an interactive **Approval Pipeline Dashbo
 
 ---
 
-## Key Learnings
+## Production Readiness Assessment & Next Steps
+
+### Current Production Strengths:
+1. **Durable Fault Tolerance**: LangGraph checkpoints every state change into SQLite. If the server crashes mid-review, when it boots back up, the paused request remains safe in `checkpoints.db` and resumes cleanly.
+2. **Deterministic Safety Boundaries**: Mathematical and whitelist validation happens before LLM invocation, preventing prompt injection attacks from reaching the model.
+3. **Observability**: With LangSmith integration, every execution span, token cost, and human resolution is traced and auditable.
+
+### Key Gaps to Close for Enterprise Production:
+1. **Database Migration (PostgreSQL)**: SQLite is great for single-node development, but cannot support concurrent multi-worker horizontal scaling. In production, we should migrate the checkpointer to `AsyncPostgresSaver` running on Amazon RDS or Google Cloud SQL.
+2. **Role-Based Access Control (RBAC) & SSO**: Currently, any user who opens the modal can click "Approve" as Manager, Finance, or Executive. In enterprise production, the interrupt modal must authenticate the logged-in user against Okta / Azure AD and only allow authorized managers or finance officers to resolve their respective stages.
+3. **Async Notification Channels**: Managers shouldn't have to keep a browser tab open waiting for an interrupt. Next steps would include integrating Slack or Microsoft Teams webhooks so an interrupt posts a message to `#manager-approvals` with one-click interactive buttons.
+4. **Parallel Approval Routing**: For high-risk purchases requiring both manager and finance approval, we can leverage LangGraph's parallel branching to notify both reviewers simultaneously, cutting approval turnaround time in half.
+
 
 1. **State Isolation is Everything in LangGraph**: Interactive agents that reuse conversation threads will bleed state between requests unless you intentionally clean up decisions and review flags at the intake node.
 2. **Scaffolding is a Powerful Learning Tool**: Working inside a pre-built template allowed me to focus on understanding state machines, interrupt handling, and evaluation frameworks without getting bogged down in boilerplate setup.
